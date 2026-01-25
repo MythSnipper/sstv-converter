@@ -1,0 +1,8 @@
+[package]
+name = "sstv-converter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+image = {version = "0.25.9"}
+hound = {version = "3.5.1"}
