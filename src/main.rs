@@ -9,6 +9,8 @@ use image::imageops::FilterType;
 enum SSTVMode {
     M1,
     M2,
+    M3,
+    M4,
 }
 
 impl SSTVMode {
@@ -16,12 +18,92 @@ impl SSTVMode {
         match self {
             SSTVMode::M1 => (320, 256),
             SSTVMode::M2 => (160, 256),
+            SSTVMode::M3 => (320, 128),
+            SSTVMode::M4 => (160, 128),
         }
     }
     fn vis_code(&self) -> u8 {
         match self {
             SSTVMode::M1 => 0b0101100,
             SSTVMode::M2 => 0b0101000,
+            SSTVMode::M3 => 0b0100100,
+            SSTVMode::M4 => 0b0100000,
+        }
+    }
+    fn color_scanline_ms(&self) -> f32 {
+        match self {
+            SSTVMode::M1 => 146.432,
+            SSTVMode::M2 => 73.216,
+            SSTVMode::M3 => 146.432,
+            SSTVMode::M4 => 73.216,
+        }
+    }
+    fn write_scanlines<W: std::io::Write + std::io::Seek>(
+        &self,
+        writer: &mut hound::WavWriter<W>,
+        osc: &mut Oscillator,
+        image: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>
+        ) {
+        match self {
+            SSTVMode::M1 | SSTVMode::M2 | SSTVMode::M3 | SSTVMode::M4 => {
+                let width = self.resolution().0 as usize;
+                let height = self.resolution().1 as usize;
+
+                const LINE_SYNC_HZ: f32 = 1200.0;
+                const SEP_HZ: f32 = 1500.0;
+
+                const LINE_SYNC_MS: f32 = 4.862;
+                let color_scan_ms = self.color_scanline_ms();
+                const SEP_MS: f32 = 0.572;
+
+                let pixel_ms = color_scan_ms / width as f32;
+
+                for y in 0..height {
+                    //line sync
+                    emit_tone(writer, osc, LINE_SYNC_HZ, LINE_SYNC_MS);
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //green
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let g = pixel[1] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * g;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //blue
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let b = pixel[2] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * b;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //red
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let r = pixel[0] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * r;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                }
+            }
+
+
+
+
         }
     }
 }
@@ -33,6 +115,8 @@ impl FromStr for SSTVMode {
         match s {
             "M1" | "Martin1" => Ok(SSTVMode::M1),
             "M2" | "Martin2" => Ok(SSTVMode::M2),
+            "M3" | "Martin3" => Ok(SSTVMode::M3),
+            "M4" | "Martin4" => Ok(SSTVMode::M4),
             _ => Err(format!("Unknown SSTV mode: {}", s)),
         }
     }
@@ -93,7 +177,7 @@ fn main(){
     );
     println!("Image resized from {}x{} to {}x{}", image_resolution.0, image_resolution.1, target_resolution.0, target_resolution.1);
 
-
+    //make wav file
     const SAMPLE_RATE: u32 = 44100;
     let spec = hound::WavSpec{
         channels: 1,
@@ -112,59 +196,7 @@ fn main(){
     //sync and write image scanlines
     println!("Writing image scanlines");
 
-    let width = sstv_mode.resolution().0 as usize;
-    let height = sstv_mode.resolution().1 as usize;
-
-    const LINE_SYNC_HZ: f32 = 1200.0;
-    const SEP_HZ: f32 = 1500.0;
-
-    const LINE_SYNC_MS: f32 = 4.862;
-    const COLOR_SCAN_MS: f32 = 146.432;
-    const SEP_MS: f32 = 0.572;
-
-    let pixel_duration = COLOR_SCAN_MS / width as f32;
-
-    for y in 0..height {
-        //line sync
-        emit_tone(&mut writer, &mut osc, LINE_SYNC_HZ, LINE_SYNC_MS);
-
-        //separator
-        emit_tone(&mut writer, &mut osc, SEP_HZ, SEP_MS);
-
-        //green
-        for x in 0..width {
-            let pixel = image.get_pixel(x as u32, y as u32);
-            let g = pixel[1] as f32 / 255.0;
-            let freq = 1500.0 + (2300.0 - 1500.0) * g;
-            emit_tone(&mut writer, &mut osc, freq, pixel_duration);
-        }
-
-        //separator
-        emit_tone(&mut writer, &mut osc, SEP_HZ, SEP_MS);
-
-        //blue
-        for x in 0..width {
-            let pixel = image.get_pixel(x as u32, y as u32);
-            let b = pixel[2] as f32 / 255.0;
-            let freq = 1500.0 + (2300.0 - 1500.0) * b;
-            emit_tone(&mut writer, &mut osc, freq, pixel_duration);
-        }
-
-        //separator
-        emit_tone(&mut writer, &mut osc, SEP_HZ, SEP_MS);
-
-        //red
-        for x in 0..width {
-            let pixel = image.get_pixel(x as u32, y as u32);
-            let r = pixel[0] as f32 / 255.0;
-            let freq = 1500.0 + (2300.0 - 1500.0) * r;
-            emit_tone(&mut writer, &mut osc, freq, pixel_duration);
-        }
-
-        //separator
-        emit_tone(&mut writer, &mut osc, SEP_HZ, SEP_MS);
-
-    }
+    sstv_mode.write_scanlines(&mut writer, &mut osc, &image);
 
 
 
