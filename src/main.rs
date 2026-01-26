@@ -220,19 +220,20 @@ fn main(){
     }
 
     //break down argv
-    let volume: f32 = argv[1].parse::<f32>().expect("invalid volume argument") / 100.0;
-    let _ = volume.clamp(0.0, 100.0);
+    let mut sample_rate: u32 = 44100;
 
-    let sstv_mode: SSTVMode = argv[2]
-        .parse()
-        .expect("Invalid SSTV Mode");
+    let mut volume: f32 = 50.0;
 
-    let infile_path =  &argv[3];
-    let outfile_path =  &argv[4];
+    let mut sstv_mode: SSTVMode = SSTVMode::S1;
+
+    let mut infile_path: &str = "";
+    let mut outfile_path: &str = "";
 
     println!("Mode: {:?}", sstv_mode);
     println!("Infile: {}", infile_path);
     println!("Outfile: {}", outfile_path);
+
+    parse_args(&argv, &mut sample_rate, &mut volume, &mut sstv_mode, &mut infile_path, &mut outfile_path);
 
     //load image
     let image = image::open(infile_path)
@@ -251,10 +252,9 @@ fn main(){
     println!("Image resized from {}x{} to {}x{}", image_resolution.0, image_resolution.1, target_resolution.0, target_resolution.1);
 
     //make wav file
-    const SAMPLE_RATE: u32 = 44100;
     let spec = hound::WavSpec{
         channels: 1,
-        sample_rate: SAMPLE_RATE,
+        sample_rate: sample_rate,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int
     };
@@ -262,7 +262,7 @@ fn main(){
     let mut writer = hound::WavWriter::create(outfile_path, spec)
         .expect("Failed to create wav file");
 
-    let mut osc = Oscillator::new(SAMPLE_RATE, volume);
+    let mut osc = Oscillator::new(sample_rate, volume);
 
     write_vis(&mut writer, &mut osc, sstv_mode.vis_code());
 
@@ -279,6 +279,53 @@ fn main(){
 
 
 }
+
+/*
+usage: ffmpeg [options] [[infile options] -i infile]... {[outfile options] outfile}...
+
+Getting help:
+    -h      -- print basic options
+    -h long -- print more options
+    -h full -- print all options (including all format and codec specific options, very long)
+    -h type=name -- print all options for the named decoder/encoder/demuxer/muxer/filter/bsf/protocol
+    See man ffmpeg for detailed description of the options.
+
+Per-stream options can be followed by :<stream_spec> to apply that option to specific streams only. <stream_spec> can be a stream index, or v/a/s for video/audio/subtitle (see manual for full syntax).
+
+Print help / information / capabilities:
+-L                  show license
+-h <topic>          show help
+-version            show version
+-muxers             show available muxers
+-demuxers           show available demuxers
+-devices            show available devices
+-decoders           show available decoders
+-encoders           show available encoders
+-filters            show available filters
+-pix_fmts           show available pixel formats
+-layouts            show standard channel layouts
+-sample_fmts        show available audio sample formats
+*/
+
+fn parse_args(args: &Vec<String>, sample_rate: &mut u32, volume: &mut f32, mode: &mut SSTVMode, infile_path: &mut &str, outfile_path: &mut &str) {
+    
+    for arg in args {
+        
+    }
+
+    *volume = args[1].parse::<f32>().expect("invalid volume argument") / 100.0;
+    *volume = (*volume).clamp(0.0, 100.0);
+
+    argv[2]
+        .parse()
+        .expect("Invalid SSTV Mode");
+}
+
+
+
+
+
+
 
 fn write_vis<W: std::io::Write + std::io::Seek>(
     writer: &mut hound::WavWriter<W>,
