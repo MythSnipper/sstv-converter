@@ -15,6 +15,7 @@ enum SSTVMode {
     S2,
     S3,
     S4,
+    SDX,
 }
 
 impl SSTVMode {
@@ -28,6 +29,7 @@ impl SSTVMode {
             SSTVMode::S2 => (160, 256),
             SSTVMode::S3 => (320, 128),
             SSTVMode::S4 => (160, 128),
+            SSTVMode::SDX => (320, 256),
         }
     }
     fn vis_code(&self) -> u8 {
@@ -40,6 +42,7 @@ impl SSTVMode {
             SSTVMode::S2 => 0b0111000,
             SSTVMode::S3 => 0b0110100,
             SSTVMode::S4 => 0b0110000,
+            SSTVMode::SDX => 0b1001100,
         }
     }
     fn color_scanline_ms(&self) -> f32 {
@@ -52,6 +55,7 @@ impl SSTVMode {
             SSTVMode::S2 => 88.064,
             SSTVMode::S3 => 138.240,
             SSTVMode::S4 => 88.064,
+            SSTVMode::SDX => 345.600,
         }
     }
     fn write_scanlines<W: std::io::Write + std::io::Seek>(
@@ -77,10 +81,8 @@ impl SSTVMode {
                 for y in 0..height {
                     //line sync
                     emit_tone(writer, osc, LINE_SYNC_HZ, LINE_SYNC_MS);
-
                     //separator
                     emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
                     //green
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
@@ -88,7 +90,6 @@ impl SSTVMode {
                         let freq = 1500.0 + (2300.0 - 1500.0) * g;
                         emit_tone(writer, osc, freq, pixel_ms);
                     }
-
                     //separator
                     emit_tone(writer, osc, SEP_HZ, SEP_MS);
 
@@ -99,10 +100,8 @@ impl SSTVMode {
                         let freq = 1500.0 + (2300.0 - 1500.0) * b;
                         emit_tone(writer, osc, freq, pixel_ms);
                     }
-
                     //separator
                     emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
                     //red
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
@@ -110,20 +109,18 @@ impl SSTVMode {
                         let freq = 1500.0 + (2300.0 - 1500.0) * r;
                         emit_tone(writer, osc, freq, pixel_ms);
                     }
-
                     //separator
                     emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
                 }
             }
-            SSTVMode::S1 | SSTVMode::S2 | SSTVMode::S3 | SSTVMode::S4 => {
+            SSTVMode::S1 | SSTVMode::S2 | SSTVMode::S3 | SSTVMode::S4 | SSTVMode::SDX => {
                 let width = self.resolution().0 as usize;
                 let height = self.resolution().1 as usize;
 
                 const LINE_SYNC_HZ: f32 = 1200.0;
                 const SEP_HZ: f32 = 1500.0;
 
-                const LINE_SYNC_MS: f32 = 4.862;
+                const LINE_SYNC_MS: f32 = 9.0;
                 let color_scan_ms = self.color_scanline_ms();
                 const SEP_MS: f32 = 1.5;
 
@@ -189,6 +186,7 @@ impl FromStr for SSTVMode {
             "S2" | "Scottie2" => Ok(SSTVMode::S2),
             "S3" | "Scottie3" => Ok(SSTVMode::S3),
             "S4" | "Scottie4" => Ok(SSTVMode::S4),
+            "SDX" | "ScottieDX" => Ok(SSTVMode::SDX),
             _ => Err(format!("Unknown SSTV mode: {}", s)),
         }
     }
