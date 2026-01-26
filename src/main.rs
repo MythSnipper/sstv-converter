@@ -11,6 +11,10 @@ enum SSTVMode {
     M2,
     M3,
     M4,
+    S1,
+    S2,
+    S3,
+    S4,
 }
 
 impl SSTVMode {
@@ -20,6 +24,10 @@ impl SSTVMode {
             SSTVMode::M2 => (160, 256),
             SSTVMode::M3 => (320, 128),
             SSTVMode::M4 => (160, 128),
+            SSTVMode::S1 => (320, 256),
+            SSTVMode::S2 => (160, 256),
+            SSTVMode::S3 => (320, 128),
+            SSTVMode::S4 => (160, 128),
         }
     }
     fn vis_code(&self) -> u8 {
@@ -28,6 +36,10 @@ impl SSTVMode {
             SSTVMode::M2 => 0b0101000,
             SSTVMode::M3 => 0b0100100,
             SSTVMode::M4 => 0b0100000,
+            SSTVMode::S1 => 0b0111100,
+            SSTVMode::S2 => 0b0111000,
+            SSTVMode::S3 => 0b0110100,
+            SSTVMode::S4 => 0b0110000,
         }
     }
     fn color_scanline_ms(&self) -> f32 {
@@ -36,6 +48,10 @@ impl SSTVMode {
             SSTVMode::M2 => 73.216,
             SSTVMode::M3 => 146.432,
             SSTVMode::M4 => 73.216,
+            SSTVMode::S1 => 138.240,
+            SSTVMode::S2 => 88.064,
+            SSTVMode::S3 => 138.240,
+            SSTVMode::S4 => 88.064,
         }
     }
     fn write_scanlines<W: std::io::Write + std::io::Seek>(
@@ -100,7 +116,59 @@ impl SSTVMode {
 
                 }
             }
+            SSTVMode::S1 | SSTVMode::S2 | SSTVMode::S3 | SSTVMode::S4 => {
+                let width = self.resolution().0 as usize;
+                let height = self.resolution().1 as usize;
 
+                const LINE_SYNC_HZ: f32 = 1200.0;
+                const SEP_HZ: f32 = 1500.0;
+
+                const LINE_SYNC_MS: f32 = 4.862;
+                let color_scan_ms = self.color_scanline_ms();
+                const SEP_MS: f32 = 1.5;
+
+                let pixel_ms = color_scan_ms / width as f32;
+
+                for y in 0..height {
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //green
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let g = pixel[1] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * g;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //blue
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let b = pixel[2] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * b;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                    //line sync
+                    emit_tone(writer, osc, LINE_SYNC_HZ, LINE_SYNC_MS);
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //red
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let r = pixel[0] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * r;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                }
+            }
 
 
 
@@ -117,6 +185,10 @@ impl FromStr for SSTVMode {
             "M2" | "Martin2" => Ok(SSTVMode::M2),
             "M3" | "Martin3" => Ok(SSTVMode::M3),
             "M4" | "Martin4" => Ok(SSTVMode::M4),
+            "S1" | "Scottie1" => Ok(SSTVMode::S1),
+            "S2" | "Scottie2" => Ok(SSTVMode::S2),
+            "S3" | "Scottie3" => Ok(SSTVMode::S3),
+            "S4" | "Scottie4" => Ok(SSTVMode::S4),
             _ => Err(format!("Unknown SSTV mode: {}", s)),
         }
     }
@@ -145,17 +217,20 @@ impl Oscillator {
 
 fn main(){
     let argv: Vec<String> = env::args().collect();
-    if argv.len() != 4 { //3 arguments needed
-        panic!("3 arguments needed(sstv mode, infile, outfile)");
+    if argv.len() != 5 { //4 arguments needed
+        panic!("4 arguments needed(volume, sstv mode, infile, outfile)");
     }
 
     //break down argv
-    let sstv_mode: SSTVMode = argv[1]
+    let volume: f32 = argv[1].parse::<f32>().expect("invalid volume argument") / 100.0;
+    let _ = volume.clamp(0.0, 100.0);
+
+    let sstv_mode: SSTVMode = argv[2]
         .parse()
         .expect("Invalid SSTV Mode");
 
-    let infile_path =  &argv[2];
-    let outfile_path =  &argv[3];
+    let infile_path =  &argv[3];
+    let outfile_path =  &argv[4];
 
     println!("Mode: {:?}", sstv_mode);
     println!("Infile: {}", infile_path);
@@ -189,7 +264,7 @@ fn main(){
     let mut writer = hound::WavWriter::create(outfile_path, spec)
         .expect("Failed to create wav file");
 
-    let mut osc = Oscillator::new(SAMPLE_RATE, 1.0);
+    let mut osc = Oscillator::new(SAMPLE_RATE, volume);
 
     write_vis(&mut writer, &mut osc, sstv_mode.vis_code());
 
