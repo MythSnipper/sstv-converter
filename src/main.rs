@@ -7,6 +7,10 @@ use image::imageops::FilterType;
 
 #[derive(Debug)]
 enum SSTVMode {
+    R12,
+    R24,
+    R36,
+    R72,
     M1,
     M2,
     M3,
@@ -21,6 +25,10 @@ enum SSTVMode {
 impl SSTVMode {
     fn resolution(&self) -> (u32, u32) {
         match self {
+            SSTVMode::R12 => (160, 120),
+            SSTVMode::R24 => (320, 120),
+            SSTVMode::R36 => (320, 240),
+            SSTVMode::R72 => (320, 240),
             SSTVMode::M1 => (320, 256),
             SSTVMode::M2 => (160, 256),
             SSTVMode::M3 => (320, 128),
