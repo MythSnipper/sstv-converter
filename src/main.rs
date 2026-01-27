@@ -5,7 +5,7 @@ use std::f32::consts::PI;
 use image::GenericImageView;
 use image::imageops::FilterType;
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Debug)]
 enum SSTVMode {
     R12,
     R24,
@@ -42,6 +42,10 @@ impl SSTVMode {
     }
     fn vis_code(&self) -> u8 {
         match self {
+            SSTVMode::R12 => 0b0000000,
+            SSTVMode::R24 => 0b0000100,
+            SSTVMode::R36 => 0b0001000,
+            SSTVMode::R72 => 0b0001100,
             SSTVMode::M1 => 0b0101100,
             SSTVMode::M2 => 0b0101000,
             SSTVMode::M3 => 0b0100100,
@@ -55,6 +59,10 @@ impl SSTVMode {
     }
     fn color_scanline_ms(&self) -> f32 {
         match self {
+            SSTVMode::R12 => 0.0,
+            SSTVMode::R24 => 0.0,
+            SSTVMode::R36 => 0.0,
+            SSTVMode::R72 => 0.0,
             SSTVMode::M1 => 146.432,
             SSTVMode::M2 => 73.216,
             SSTVMode::M3 => 146.432,
@@ -174,9 +182,114 @@ impl SSTVMode {
 
                 }
             }
+            SSTVMode::R12 | SSTVMode::R36 => {
+                let width = self.resolution().0 as usize;
+                let height = self.resolution().1 as usize;
 
+                const LINE_SYNC_HZ: f32 = 1200.0;
+                const COLOR_SYNC1_HZ: f32 = 1500.0;
+                const COLOR_SYNC2_HZ: f32 = 2300.0;
+                const SEP_HZ: f32 = 1500.0;
 
+                let line_sync_ms: f32 = if *self == SSTVMode::R12{7.0}else{10.5};
+                let color_sync_ms: f32 = if *self == SSTVMode::R12{3.0}else{4.5};
 
+                let Y_scan_ms: f32 = if *self == SSTVMode::R12{60.0}else{90.0};
+                let color_scan_ms: f32 = if *self == SSTVMode::R12{30.0}else{45.0};
+                const SEP_MS: f32 = 3.0;
+                const SEP_SHORT_MS: f32 = 1.5;
+
+                let Y_pixel_ms = Y_scan_ms / width as f32;
+                let color_pixel_ms = color_scan_ms / width as f32;
+
+                for y in 0..height {
+
+                    //line sync
+                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms);
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //Luminance
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let YCrCb = RGB_to_YCrCb(pixel[0], pixel[1], pixel[2]);
+                        let Y = YCrCb.0;
+                        let freq: f32 = 1500.0 + (2300.0 - 1500.0) * Y;
+                        emit_tone(writer, osc, freq, Y_pixel_ms);
+                    }
+
+                    //chrominance sync
+                    emit_tone(writer, osc, COLOR_SYNC1_HZ, color_sync_ms);
+
+                    //Chrominance r
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let YCrCb = RGB_to_YCrCb(pixel[0], pixel[1], pixel[2]);
+                        let Chrominance = if y%2==0{YCrCb.1}else{YCrCb.2};
+                        let Chrominance = (Chrominance + 1.0)/2.0;
+                        let freq = 1900.0 + 400.0 * Chrominance;
+                        emit_tone(writer, osc, freq, color_pixel_ms);
+                    }
+
+                    //short separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_SHORT_MS);
+
+                }
+            }
+            SSTVMode::R24 | SSTVMode::R72 => {
+                let width = self.resolution().0 as usize;
+                let height = self.resolution().1 as usize;
+
+                const LINE_SYNC_HZ: f32 = 1200.0;
+                const SEP_HZ: f32 = 1500.0;
+
+                const LINE_SYNC_MS: f32 = 9.0;
+                let color_scan_ms = self.color_scanline_ms();
+                const SEP_MS: f32 = 1.5;
+
+                let pixel_ms = color_scan_ms / width as f32;
+
+                for y in 0..height {
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //green
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let g = pixel[1] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * g;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //blue
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let b = pixel[2] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * b;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                    //line sync
+                    emit_tone(writer, osc, LINE_SYNC_HZ, LINE_SYNC_MS);
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //red
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let r = pixel[0] as f32 / 255.0;
+                        let freq = 1500.0 + (2300.0 - 1500.0) * r;
+                        emit_tone(writer, osc, freq, pixel_ms);
+                    }
+
+                }
+            }
         }
     }
 }
@@ -186,6 +299,10 @@ impl FromStr for SSTVMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "R12" | "Robot12" => Ok(SSTVMode::R12),
+            "R24" | "Robot24" => Ok(SSTVMode::R24),
+            "R36" | "Robot36" => Ok(SSTVMode::R36),
+            "R72" | "Robot72" => Ok(SSTVMode::R72),
             "M1" | "Martin1" => Ok(SSTVMode::M1),
             "M2" | "Martin2" => Ok(SSTVMode::M2),
             "M3" | "Martin3" => Ok(SSTVMode::M3),
@@ -220,7 +337,6 @@ impl Oscillator {
     }
 }
 
-
 fn main(){
     let mut argv: Vec<String> = env::args().collect();
 
@@ -237,7 +353,7 @@ fn main(){
     parse_args(&mut argv, &mut sstv_mode, &mut volume, &mut sample_rate, &mut infile_path, &mut outfile_path);
 
     println!("Mode: {:?}", sstv_mode);
-    println!("Volume: {}%", volume);
+    println!("Volume: {}%", volume*100.0);
     println!("Sample rate: {} Hz", sample_rate);
     println!("Infile: {}", infile_path);
     println!("Outfile: {}", outfile_path);
@@ -254,7 +370,7 @@ fn main(){
         &image,
         target_resolution.0,
         target_resolution.1,
-        FilterType::Lanczos3
+        FilterType::Nearest
     );
     println!("Image resized from {}x{} to {}x{}", image_resolution.0, image_resolution.1, target_resolution.0, target_resolution.1);
 
@@ -283,33 +399,6 @@ fn main(){
     println!("Done");
 
 }
-
-/*
-usage: ffmpeg [options] [[infile options] -i infile]... {[outfile options] outfile}...
-
-Getting help:
-    -h      -- print basic options
-    -h long -- print more options
-    -h full -- print all options (including all format and codec specific options, very long)
-    -h type=name -- print all options for the named decoder/encoder/demuxer/muxer/filter/bsf/protocol
-    See man ffmpeg for detailed description of the options.
-
-Per-stream options can be followed by :<stream_spec> to apply that option to specific streams only. <stream_spec> can be a stream index, or v/a/s for video/audio/subtitle (see manual for full syntax).
-
-Print help / information / capabilities:
--L                  show license
--h <topic>          show help
--version            show version
--muxers             show available muxers
--demuxers           show available demuxers
--devices            show available devices
--decoders           show available decoders
--encoders           show available encoders
--filters            show available filters
--pix_fmts           show available pixel formats
--layouts            show standard channel layouts
--sample_fmts        show available audio sample formats
-*/
 
 fn parse_args(args: &mut Vec<String>, mode: &mut SSTVMode, volume: &mut f32, sample_rate: &mut u32, infile_path: &mut String, outfile_path: &mut String) {
     let helpmsg = format!(r#"Usage: {} infile [options]
@@ -404,11 +493,17 @@ Modes:
     
 }
 
+fn RGB_to_YCrCb(red: u8, green: u8, blue: u8) -> (f32, f32, f32) {
+    let R: f32 = (red as f32)/255.0;
+    let G: f32 = (green as f32)/255.0;
+    let B: f32 = (blue as f32)/255.0;
 
+    let Y = 0.299*R + 0.587*G + 0.114*B;
+    let Cr = R - Y;
+    let Cb = B - Y;
 
-
-
-
+    (Y, Cr, Cb)
+}
 
 fn write_vis<W: std::io::Write + std::io::Seek>(
     writer: &mut hound::WavWriter<W>,
@@ -495,7 +590,3 @@ fn _emit_tone<W: std::io::Write + std::io::Seek>(
 
     Ok(())
 }
-
-
-
-
