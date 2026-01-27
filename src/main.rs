@@ -214,26 +214,25 @@ impl Oscillator {
 
 
 fn main(){
-    let argv: Vec<String> = env::args().collect();
-    if argv.len() != 5 { //4 arguments needed
-        panic!("4 arguments needed(volume, sstv mode, infile, outfile)");
-    }
+    let mut argv: Vec<String> = env::args().collect();
 
     //break down argv
-    let mut sample_rate: u32 = 44100;
+    let mut sstv_mode: SSTVMode = SSTVMode::S1;
 
     let mut volume: f32 = 50.0;
 
-    let mut sstv_mode: SSTVMode = SSTVMode::S1;
+    let mut sample_rate: u32 = 44100;
 
-    let mut infile_path: &str = "";
-    let mut outfile_path: &str = "";
+    let mut infile_path: String = String::from("");
+    let mut outfile_path: String = String::from("out.wav");
+
+    parse_args(&mut argv, &mut sstv_mode, &mut volume, &mut sample_rate, &mut infile_path, &mut outfile_path);
 
     println!("Mode: {:?}", sstv_mode);
+    println!("Volume: {}%", volume);
+    println!("Sample rate: {} Hz", sample_rate);
     println!("Infile: {}", infile_path);
     println!("Outfile: {}", outfile_path);
-
-    parse_args(&argv, &mut sample_rate, &mut volume, &mut sstv_mode, &mut infile_path, &mut outfile_path);
 
     //load image
     let image = image::open(infile_path)
@@ -271,12 +270,9 @@ fn main(){
 
     sstv_mode.write_scanlines(&mut writer, &mut osc, &image);
 
-
-
     writer.finalize().unwrap();
 
     println!("Done");
-
 
 }
 
@@ -307,18 +303,97 @@ Print help / information / capabilities:
 -sample_fmts        show available audio sample formats
 */
 
-fn parse_args(args: &Vec<String>, sample_rate: &mut u32, volume: &mut f32, mode: &mut SSTVMode, infile_path: &mut &str, outfile_path: &mut &str) {
+fn parse_args(args: &mut Vec<String>, mode: &mut SSTVMode, volume: &mut f32, sample_rate: &mut u32, infile_path: &mut String, outfile_path: &mut String) {
+    let helpmsg = format!(r#"Usage: {} infile [options]
+Options:
+  -h, --help                Display this text
+  --version                 Display version information
+  -m, --mode <mode>         Specify SSTV mode(default Scottie S1)
+  -v, --volume <num>        Specify audio volume percentage(0-100, default 50)
+  -s, --sample-rate <num>   Specify audio sample rate(default 44100)
+  -o <filename>             Specify output file name
+
+Modes:
+   Mode name      Transfer time(s)     Resolution     Speed(lpm)
+  Martin1, M1          114              320x256          134
+  Martin2, M2           58              160x256          264
+  Martin3, M3           57              320x128          134
+  Martin4, M4           29              160x128          264
+  Scottie1, S1         110              320x256          140
+  Scottie2, S2          71              160x256          216
+  Scottie3, S3          55              320x128          140
+  Scottie4, S4          36              160x128          216
+  ScottieDX, SDX       269              320x256           57
+"#, args[0]);
+    let versionmsg = format!(r#"
+{} Version 1.0.0 20260126
+"#, args[0]);
     
-    for arg in args {
-        
+    if args.len() < 2 { //at least 1 arg needed
+        print!("{}", helpmsg);
+        std::process::exit(0);
     }
 
-    *volume = args[1].parse::<f32>().expect("invalid volume argument") / 100.0;
-    *volume = (*volume).clamp(0.0, 100.0);
+    let mut flag_mode = false;
+    let mut flag_volume = false;
+    let mut flag_samplerate = false;
+    let mut flag_output = false;
 
-    argv[2]
-        .parse()
-        .expect("Invalid SSTV Mode");
+    for arg in args {
+        let arg: &str = arg;
+
+        if flag_mode {
+            flag_mode = false;
+            *mode = arg
+                .parse()
+                .expect("Invalid SSTV Mode");
+            continue;
+        }
+        if flag_volume {
+            flag_volume = false;
+            *volume = arg.parse::<f32>().expect("Invalid Volume") / 100.0;
+            *volume = (*volume).clamp(0.0, 100.0);
+            continue;
+        }
+        if flag_samplerate {
+            flag_samplerate = false;
+            *sample_rate = arg.parse::<u32>().expect("Invalid Sample Rate");
+            continue;
+        }
+        if flag_output {
+            flag_output = false;
+            *outfile_path = arg.to_string();
+            continue;
+        }
+
+        match arg {
+            "-h" | "--help" => {
+                print!("{}", helpmsg);
+                std::process::exit(0);
+            }
+            "--version" => {
+                print!("{}", versionmsg);
+                std::process::exit(0);
+            }
+            "-m" | "--mode" => {
+                flag_mode = true;
+            }
+            "-v" | "--volume" => {
+                flag_volume = true;
+            }
+            "-s" | "--sample-rate" => {
+                flag_samplerate = true;
+            }
+            "-o" => {
+                flag_output = true;
+            }
+            _ => {
+                *infile_path = arg.to_string();
+            }
+        }
+    }
+
+    
 }
 
 
