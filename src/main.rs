@@ -7,8 +7,6 @@ use image::imageops::FilterType;
 
 #[derive(PartialEq, Eq, Debug)]
 enum SSTVMode {
-    R12,
-    R24,
     R36,
     R72,
     M1,
@@ -25,8 +23,6 @@ enum SSTVMode {
 impl SSTVMode {
     fn resolution(&self) -> (u32, u32) {
         match self {
-            SSTVMode::R12 => (160, 120),
-            SSTVMode::R24 => (320, 120),
             SSTVMode::R36 => (320, 240),
             SSTVMode::R72 => (320, 240),
             SSTVMode::M1 => (320, 256),
@@ -42,8 +38,6 @@ impl SSTVMode {
     }
     fn vis_code(&self) -> u8 {
         match self {
-            SSTVMode::R12 => 0b0000000,
-            SSTVMode::R24 => 0b0000100,
             SSTVMode::R36 => 0b0001000,
             SSTVMode::R72 => 0b0001100,
             SSTVMode::M1 => 0b0101100,
@@ -59,8 +53,6 @@ impl SSTVMode {
     }
     fn color_scanline_ms(&self) -> f32 {
         match self {
-            SSTVMode::R12 => 0.0,
-            SSTVMode::R24 => 0.0,
             SSTVMode::R36 => 0.0,
             SSTVMode::R72 => 0.0,
             SSTVMode::M1 => 146.432,
@@ -182,24 +174,24 @@ impl SSTVMode {
 
                 }
             }
-            SSTVMode::R12 | SSTVMode::R36 => {
+            SSTVMode::R36 => {
                 let width = self.resolution().0 as usize;
                 let height = self.resolution().1 as usize;
-
+                
                 const LINE_SYNC_HZ: f32 = 1200.0;
                 const COLOR_SYNC1_HZ: f32 = 1500.0;
                 const COLOR_SYNC2_HZ: f32 = 2300.0;
                 const SEP_HZ: f32 = 1500.0;
 
-                let line_sync_ms: f32 = if *self == SSTVMode::R12{7.0}else{10.5};
-                let color_sync_ms: f32 = if *self == SSTVMode::R12{3.0}else{4.5};
+                let line_sync_ms: f32 = 9.0;
+                let color_sync_ms: f32 = 4.5;
 
-                let Y_scan_ms: f32 = if *self == SSTVMode::R12{60.0}else{90.0};
-                let color_scan_ms: f32 = if *self == SSTVMode::R12{30.0}else{45.0};
+                let y_scan_ms: f32 = 88.0;
+                let color_scan_ms: f32 = 44.0;
                 const SEP_MS: f32 = 3.0;
                 const SEP_SHORT_MS: f32 = 1.5;
 
-                let Y_pixel_ms = Y_scan_ms / width as f32;
+                let y_pixel_ms = y_scan_ms / width as f32;
                 let color_pixel_ms = color_scan_ms / width as f32;
 
                 for y in 0..height {
@@ -213,81 +205,95 @@ impl SSTVMode {
                     //Luminance
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
-                        let YCrCb = RGB_to_YCrCb(pixel[0], pixel[1], pixel[2]);
-                        let Y = YCrCb.0;
-                        let freq: f32 = 1500.0 + (2300.0 - 1500.0) * Y;
-                        emit_tone(writer, osc, freq, Y_pixel_ms);
+                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                        let y = ycrcb.0;
+                        let freq: f32 = 1500.0 + (2300.0 - 1500.0) * y;
+                        emit_tone(writer, osc, freq, y_pixel_ms);
                     }
 
                     //chrominance sync
+                    emit_tone(writer, osc, if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}, color_sync_ms);
+
+                    //short separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_SHORT_MS);
+                    
+                    //Chrominance
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                        let chrominance = if y%2==0{ycrcb.1}else{ycrcb.2};
+                        let freq = 1900.0 + 400.0 * chrominance;
+                        emit_tone(writer, osc, freq, color_pixel_ms);
+                    }
+
+                    
+
+                }
+            }
+            SSTVMode::R72 => {
+                let width = self.resolution().0 as usize;
+                let height = self.resolution().1 as usize;
+                
+                const LINE_SYNC_HZ: f32 = 1200.0;
+                const COLOR_SYNC1_HZ: f32 = 1500.0;
+                const COLOR_SYNC2_HZ: f32 = 2300.0;
+                const SEP_HZ: f32 = 1500.0;
+
+                let line_sync_ms: f32 = 8.5;
+                let color_sync_ms: f32 = 4.75;
+
+                let y_scan_ms: f32 = 138.0;
+                let color_scan_ms: f32 = 69.0;
+                const SEP_MS: f32 = 3.0;
+                const SEP_SHORT_MS: f32 = 1.5;
+
+                let y_pixel_ms = y_scan_ms / width as f32;
+                let color_pixel_ms = color_scan_ms / width as f32;
+
+                for y in 0..height {
+
+                    //line sync
+                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms);
+
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+
+                    //Luminance
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                        let y = ycrcb.0;
+                        let freq: f32 = 1500.0 + (2300.0 - 1500.0) * y;
+                        emit_tone(writer, osc, freq, y_pixel_ms);
+                    }
+
+                    //chrominance sync r
                     emit_tone(writer, osc, COLOR_SYNC1_HZ, color_sync_ms);
+
+                    emit_tone(writer, osc, 1900.0, SEP_SHORT_MS);
 
                     //Chrominance r
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
-                        let YCrCb = RGB_to_YCrCb(pixel[0], pixel[1], pixel[2]);
-                        let Chrominance = if y%2==0{YCrCb.1}else{YCrCb.2};
-                        let Chrominance = (Chrominance + 1.0)/2.0;
-                        let freq = 1900.0 + 400.0 * Chrominance;
+                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                        let chrominance = ycrcb.1;
+                        let freq = 1900.0 + 400.0 * chrominance;
                         emit_tone(writer, osc, freq, color_pixel_ms);
                     }
 
-                    //short separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_SHORT_MS);
+                    //chrominance sync b
+                    emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms);
 
-                }
-            }
-            SSTVMode::R24 | SSTVMode::R72 => {
-                let width = self.resolution().0 as usize;
-                let height = self.resolution().1 as usize;
+                    emit_tone(writer, osc, 1900.0, SEP_SHORT_MS);
 
-                const LINE_SYNC_HZ: f32 = 1200.0;
-                const SEP_HZ: f32 = 1500.0;
-
-                const LINE_SYNC_MS: f32 = 9.0;
-                let color_scan_ms = self.color_scanline_ms();
-                const SEP_MS: f32 = 1.5;
-
-                let pixel_ms = color_scan_ms / width as f32;
-
-                for y in 0..height {
-
-                    //separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
-                    //green
+                    //Chrominance b
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
-                        let g = pixel[1] as f32 / 255.0;
-                        let freq = 1500.0 + (2300.0 - 1500.0) * g;
-                        emit_tone(writer, osc, freq, pixel_ms);
+                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                        let chrominance = ycrcb.2;
+                        let freq = 1900.0 + 400.0 * chrominance;
+                        emit_tone(writer, osc, freq, color_pixel_ms);
                     }
-
-                    //separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
-                    //blue
-                    for x in 0..width {
-                        let pixel = image.get_pixel(x as u32, y as u32);
-                        let b = pixel[2] as f32 / 255.0;
-                        let freq = 1500.0 + (2300.0 - 1500.0) * b;
-                        emit_tone(writer, osc, freq, pixel_ms);
-                    }
-
-                    //line sync
-                    emit_tone(writer, osc, LINE_SYNC_HZ, LINE_SYNC_MS);
-
-                    //separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
-                    //red
-                    for x in 0..width {
-                        let pixel = image.get_pixel(x as u32, y as u32);
-                        let r = pixel[0] as f32 / 255.0;
-                        let freq = 1500.0 + (2300.0 - 1500.0) * r;
-                        emit_tone(writer, osc, freq, pixel_ms);
-                    }
-
                 }
             }
         }
@@ -299,8 +305,6 @@ impl FromStr for SSTVMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "R12" | "Robot12" => Ok(SSTVMode::R12),
-            "R24" | "Robot24" => Ok(SSTVMode::R24),
             "R36" | "Robot36" => Ok(SSTVMode::R36),
             "R72" | "Robot72" => Ok(SSTVMode::R72),
             "M1" | "Martin1" => Ok(SSTVMode::M1),
@@ -350,11 +354,14 @@ fn main(){
     let mut infile_path: String = String::from("");
     let mut outfile_path: String = String::from("out.wav");
 
-    parse_args(&mut argv, &mut sstv_mode, &mut volume, &mut sample_rate, &mut infile_path, &mut outfile_path);
+    let mut calibration: bool = true;
+
+    parse_args(&mut argv, &mut sstv_mode, &mut volume, &mut sample_rate, &mut infile_path, &mut outfile_path, &mut calibration);
 
     println!("Mode: {:?}", sstv_mode);
     println!("Volume: {}%", volume*100.0);
     println!("Sample rate: {} Hz", sample_rate);
+    println!("Calibration signal: {:?}", calibration);
     println!("Infile: {}", infile_path);
     println!("Outfile: {}", outfile_path);
 
@@ -387,7 +394,7 @@ fn main(){
 
     let mut osc = Oscillator::new(sample_rate, volume);
 
-    write_vis(&mut writer, &mut osc, sstv_mode.vis_code());
+    write_vis(&mut writer, &mut osc, sstv_mode.vis_code(), calibration);
 
     //sync and write image scanlines
     println!("Writing image scanlines");
@@ -400,7 +407,7 @@ fn main(){
 
 }
 
-fn parse_args(args: &mut Vec<String>, mode: &mut SSTVMode, volume: &mut f32, sample_rate: &mut u32, infile_path: &mut String, outfile_path: &mut String) {
+fn parse_args(args: &mut Vec<String>, mode: &mut SSTVMode, volume: &mut f32, sample_rate: &mut u32, infile_path: &mut String, outfile_path: &mut String, calibration: &mut bool) {
     let helpmsg = format!(r#"Usage: {} infile [options]
 Options:
   -h, --help                Display this text
@@ -409,6 +416,7 @@ Options:
   -v, --volume <num>        Specify audio volume percentage(0-100, default 50)
   -s, --sample-rate <num>   Specify audio sample rate(default 44100)
   -o <filename>             Specify output file name
+  -c <bool>                 Specify optional calibration tone at start(default true)
 
 Modes:
    Mode name      Transfer time(s)     Resolution     Speed(lpm)
@@ -435,6 +443,7 @@ Modes:
     let mut flag_volume = false;
     let mut flag_samplerate = false;
     let mut flag_output = false;
+    let mut flag_calibration = false;
 
     for arg in args {
         let arg: &str = arg;
@@ -462,6 +471,21 @@ Modes:
             *outfile_path = arg.to_string();
             continue;
         }
+        if flag_calibration  {
+            flag_calibration = false;
+            *calibration = match arg.to_lowercase().as_str() {
+                "true" | "yes" | "t" | "yerp" | "yuhuh" | "please" | "pwease" | "ya" | "yer" | "ye" | "y" | "da" => {
+                    true
+                }
+                "false" | "no" | "n" | "f" | "nerp" | "nuhuh" | "nu" | "ner" => {
+                    false
+                }
+                _ => {
+                    panic!("Invalid calibration boolean");
+                }
+            };
+            continue;
+        }
 
         match arg {
             "-h" | "--help" => {
@@ -484,6 +508,9 @@ Modes:
             "-o" => {
                 flag_output = true;
             }
+            "-c" => {
+                flag_calibration = true;
+            }
             _ => {
                 *infile_path = arg.to_string();
             }
@@ -493,23 +520,39 @@ Modes:
     
 }
 
-fn RGB_to_YCrCb(red: u8, green: u8, blue: u8) -> (f32, f32, f32) {
-    let R: f32 = (red as f32)/255.0;
-    let G: f32 = (green as f32)/255.0;
-    let B: f32 = (blue as f32)/255.0;
+fn rgb_to_ycrcb(red: u8, green: u8, blue: u8) -> (f32, f32, f32) {
+    let r: f32 = (red as f32)/255.0;
+    let g: f32 = (green as f32)/255.0;
+    let b: f32 = (blue as f32)/255.0;
 
-    let Y = 0.299*R + 0.587*G + 0.114*B;
-    let Cr = R - Y;
-    let Cb = B - Y;
+    let y = 0.299*r + 0.587*g + 0.114*b;
+    let cr = r - y;
+    let cb = b - y;
 
-    (Y, Cr, Cb)
+    (y, cr, cb)
 }
 
 fn write_vis<W: std::io::Write + std::io::Seek>(
     writer: &mut hound::WavWriter<W>,
     osc: &mut Oscillator,
-    vis_code: u8
+    vis_code: u8,
+    incl_calibration: bool
 ) {
+
+    if incl_calibration {
+        emit_tone(writer, osc, 1900.0, 100.0);
+        emit_tone(writer, osc, 1500.0, 100.0);
+        emit_tone(writer, osc, 1900.0, 100.0);
+        emit_tone(writer, osc, 1500.0, 100.0);
+
+        emit_tone(writer, osc, 2300.0, 100.0);
+        emit_tone(writer, osc, 1500.0, 100.0);
+        emit_tone(writer, osc, 2300.0, 100.0);
+        emit_tone(writer, osc, 1500.0, 100.0);
+    }
+
+
+
     const VIS_LEADER_MS: f32 = 300.0;
     const VIS_BREAK_MS: f32 = 10.0;
     const VIS_BIT_MS: f32 = 30.0;
