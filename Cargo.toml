@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 image = {version = "0.25.9"}
 hound = {version = "3.5.1"}
+rodio = {version = "0.21.1"}

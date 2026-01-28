@@ -3,7 +3,8 @@ use std::str::FromStr;
 use std::f32::consts::PI;
 
 use image::GenericImageView;
-use image::imageops::FilterType;
+use rodio;
+
 
 #[derive(PartialEq, Eq, Debug)]
 enum SSTVMode {
@@ -179,6 +180,117 @@ impl SSTVMode {
 
                 }
             }
+            SSTVMode::R24 => {
+                let width = self.resolution().0 as usize;
+                let height = self.resolution().1 as usize;
+                
+                let half_chroma: bool = (*self == SSTVMode::R12) || (*self == SSTVMode::R36);
+
+                const LINE_SYNC_HZ: f32 = 1200.0;
+                const COLOR_SYNC1_HZ: f32 = 1500.0;
+                const COLOR_SYNC2_HZ: f32 = 2300.0;
+                const SEP_HZ: f32 = 1500.0;
+
+                let line_sync_ms: f32 = match self {
+                    SSTVMode::R12 => {7.0},
+                    SSTVMode::R24 => {8.0},
+                    SSTVMode::R36 => {9.0},
+                    SSTVMode::R72 => {8.5},
+                    _ => {0.0}
+                };
+                let color_sync_ms: f32 = match self {
+                    SSTVMode::R12 => {3.0},
+                    SSTVMode::R24 => {4.5},
+                    SSTVMode::R36 => {4.5},
+                    SSTVMode::R72 => {4.75},
+                    _ => {0.0}
+                };
+
+                let y_scan_ms: f32 = match self {
+                    SSTVMode::R12 => {60.0},
+                    SSTVMode::R24 => {91.0},
+                    SSTVMode::R36 => {88.0},
+                    SSTVMode::R72 => {138.0},
+                    _ => {0.0}
+                };
+                let color_scan_ms: f32 = match self {
+                    SSTVMode::R12 => {30.0},
+                    SSTVMode::R24 => {45.0},
+                    SSTVMode::R36 => {44.0},
+                    SSTVMode::R72 => {69.0},
+                    _ => {0.0}
+                };
+                const SEP_MS: f32 = 3.0;
+                const SEP_SHORT_MS: f32 = 1.5;
+
+                let y_pixel_ms = y_scan_ms / width as f32;
+                let color_pixel_ms = color_scan_ms / width as f32;
+
+                let mut no_vel = true;
+                for y in 0..height {
+                    let mut totalitarianism: f32 = 0.0;
+                    //line sync
+                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms+1.0);
+                    totalitarianism += line_sync_ms;
+                    //separator
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS-1.5);
+                    totalitarianism += SEP_MS;
+                    //Luminance
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                        let y = ycrcb.0;
+                        let freq: f32 = 1500.0 + (2300.0 - 1500.0) * y;
+                        emit_tone(writer, osc, freq, y_pixel_ms);
+                        totalitarianism += y_pixel_ms;
+                    }
+
+                    //chrominance sync
+                    let syn_adjust = -0.25;
+                    emit_tone(writer, osc, if half_chroma{if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}}else{COLOR_SYNC1_HZ}, color_sync_ms-0.75+syn_adjust);
+
+                    totalitarianism += color_sync_ms;
+
+                    //short separator
+                    emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1900.0}, SEP_SHORT_MS-1.0);
+                    
+                    totalitarianism += SEP_SHORT_MS;
+
+                    //Chrominance
+                    for x in 0..width {
+                        let pixel = image.get_pixel(x as u32, y as u32);
+                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                        let chrominance = if half_chroma{if y%2==0{ycrcb.1}else{ycrcb.2}}else{ycrcb.1};
+                        let freq = 1900.0 + 400.0 * chrominance;
+                        emit_tone(writer, osc, freq, color_pixel_ms);
+                        totalitarianism += color_pixel_ms;
+                    }
+
+
+                    if !half_chroma {
+                        //chrominance sync b
+                        emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms-0.75-syn_adjust);
+                        totalitarianism += color_sync_ms;
+                        emit_tone(writer, osc, 1900.0, SEP_SHORT_MS-1.0);
+                        totalitarianism += SEP_SHORT_MS;
+                        //Chrominance b
+                        for x in 0..width {
+                            let pixel = image.get_pixel(x as u32, y as u32);
+                            let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                            let chrominance = ycrcb.2;
+                            let freq = 1900.0 + 400.0 * chrominance;
+                            emit_tone(writer, osc, freq, color_pixel_ms);
+                            totalitarianism += color_pixel_ms;
+                        }
+                    }
+                    
+                    if no_vel {
+                        no_vel = false;
+                        println!("MS: {}", totalitarianism);
+                    }
+                }
+            }
+            
             SSTVMode::R12 | SSTVMode::R24 | SSTVMode::R36 | SSTVMode::R72 => {
                 let width = self.resolution().0 as usize;
                 let height = self.resolution().1 as usize;
@@ -192,14 +304,14 @@ impl SSTVMode {
 
                 let line_sync_ms: f32 = match self {
                     SSTVMode::R12 => {7.0},
-                    SSTVMode::R24 => {8.5},
+                    SSTVMode::R24 => {9.0},
                     SSTVMode::R36 => {9.0},
                     SSTVMode::R72 => {8.5},
                     _ => {0.0}
                 };
                 let color_sync_ms: f32 = match self {
                     SSTVMode::R12 => {3.0},
-                    SSTVMode::R24 => {4.75},
+                    SSTVMode::R24 => {4.5},
                     SSTVMode::R36 => {4.5},
                     SSTVMode::R72 => {4.75},
                     _ => {0.0}
@@ -207,14 +319,14 @@ impl SSTVMode {
 
                 let y_scan_ms: f32 = match self {
                     SSTVMode::R12 => {60.0},
-                    SSTVMode::R24 => {88.0},
+                    SSTVMode::R24 => {91.0},
                     SSTVMode::R36 => {88.0},
                     SSTVMode::R72 => {138.0},
                     _ => {0.0}
                 };
                 let color_scan_ms: f32 = match self {
                     SSTVMode::R12 => {30.0},
-                    SSTVMode::R24 => {44.0},
+                    SSTVMode::R24 => {45.0},
                     SSTVMode::R36 => {44.0},
                     SSTVMode::R72 => {69.0},
                     _ => {0.0}
@@ -225,14 +337,15 @@ impl SSTVMode {
                 let y_pixel_ms = y_scan_ms / width as f32;
                 let color_pixel_ms = color_scan_ms / width as f32;
 
+                let mut no_vel = true;
                 for y in 0..height {
-
+                    let mut totalitarianism: f32 = 0.0;
                     //line sync
                     emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms);
-
+                    totalitarianism += line_sync_ms;
                     //separator
                     emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
+                    totalitarianism += SEP_MS;
                     //Luminance
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
@@ -240,14 +353,19 @@ impl SSTVMode {
                         let y = ycrcb.0;
                         let freq: f32 = 1500.0 + (2300.0 - 1500.0) * y;
                         emit_tone(writer, osc, freq, y_pixel_ms);
+                        totalitarianism += y_pixel_ms;
                     }
 
                     //chrominance sync
                     emit_tone(writer, osc, if half_chroma{if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}}else{COLOR_SYNC1_HZ}, color_sync_ms);
 
+                    totalitarianism += color_sync_ms;
+
                     //short separator
                     emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1900.0}, SEP_SHORT_MS);
                     
+                    totalitarianism += SEP_SHORT_MS;
+
                     //Chrominance
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
@@ -255,14 +373,16 @@ impl SSTVMode {
                         let chrominance = if half_chroma{if y%2==0{ycrcb.1}else{ycrcb.2}}else{ycrcb.1};
                         let freq = 1900.0 + 400.0 * chrominance;
                         emit_tone(writer, osc, freq, color_pixel_ms);
+                        totalitarianism += color_pixel_ms;
                     }
+
 
                     if !half_chroma {
                         //chrominance sync b
                         emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms);
-
+                        totalitarianism += color_sync_ms;
                         emit_tone(writer, osc, 1900.0, SEP_SHORT_MS);
-
+                        totalitarianism += SEP_SHORT_MS;
                         //Chrominance b
                         for x in 0..width {
                             let pixel = image.get_pixel(x as u32, y as u32);
@@ -270,10 +390,14 @@ impl SSTVMode {
                             let chrominance = ycrcb.2;
                             let freq = 1900.0 + 400.0 * chrominance;
                             emit_tone(writer, osc, freq, color_pixel_ms);
+                            totalitarianism += color_pixel_ms;
                         }
                     }
                     
-
+                    if no_vel {
+                        no_vel = false;
+                        println!("MS: {}", totalitarianism);
+                    }
                 }
             }
             
@@ -314,7 +438,6 @@ pub struct Oscillator {
     frac_samples: f32,
     pub amplitude: f32,
 }
-
 impl Oscillator {
     pub fn new(sample_rate: u32, amplitude: f32) -> Self {
         Self {
@@ -340,8 +463,9 @@ fn main(){
     let mut outfile_path: String = String::from("out.wav");
 
     let mut calibration: bool = true;
+    let mut playback: bool = false;
 
-    parse_args(&mut argv, &mut sstv_mode, &mut volume, &mut sample_rate, &mut infile_path, &mut outfile_path, &mut calibration);
+    parse_args(&mut argv, &mut sstv_mode, &mut volume, &mut sample_rate, &mut infile_path, &mut outfile_path, &mut calibration, &mut playback);
 
     println!("Mode: {:?}", sstv_mode);
     println!("Volume: {}%", volume*100.0);
@@ -349,6 +473,7 @@ fn main(){
     println!("Calibration signal: {:?}", calibration);
     println!("Infile: {}", infile_path);
     println!("Outfile: {}", outfile_path);
+    println!("Playback: {}", playback);
 
     //load image
     let image = image::open(infile_path)
@@ -362,7 +487,7 @@ fn main(){
         &image,
         target_resolution.0,
         target_resolution.1,
-        FilterType::Nearest
+        image::imageops::FilterType::Nearest
     );
     println!("Image resized from {}x{} to {}x{}", image_resolution.0, image_resolution.1, target_resolution.0, target_resolution.1);
 
@@ -374,7 +499,7 @@ fn main(){
         sample_format: hound::SampleFormat::Int
     };
 
-    let mut writer = hound::WavWriter::create(outfile_path, spec)
+    let mut writer = hound::WavWriter::create(&outfile_path, spec)
         .expect("Failed to create wav file");
 
     let mut osc = Oscillator::new(sample_rate, volume);
@@ -390,9 +515,21 @@ fn main(){
 
     println!("Done");
 
+
+    if playback {
+        println!("Playback: ");
+        let stream_handle = rodio::OutputStreamBuilder::open_default_stream().expect("Can't open default audio stream");
+        let sink = rodio::Sink::connect_new(stream_handle.mixer());
+
+        let file = std::fs::File::open(outfile_path).expect("Can't open wav file for playback");
+        sink.append(rodio::Decoder::try_from(file).expect("Can't decode file"));
+
+        sink.sleep_until_end();
+    }
+
 }
 
-fn parse_args(args: &mut Vec<String>, mode: &mut SSTVMode, volume: &mut f32, sample_rate: &mut u32, infile_path: &mut String, outfile_path: &mut String, calibration: &mut bool) {
+fn parse_args(args: &mut Vec<String>, mode: &mut SSTVMode, volume: &mut f32, sample_rate: &mut u32, infile_path: &mut String, outfile_path: &mut String, calibration: &mut bool, playback: &mut bool) {
     let helpmsg = format!(r#"Usage: {} infile [options]
 Options:
   -h, --help                Display this text
@@ -402,6 +539,7 @@ Options:
   -s, --sample-rate <num>   Specify audio sample rate(default 44100)
   -o <filename>             Specify output file name
   -c <bool>                 Specify optional calibration tone at start(default true)
+  -p <bool>                 Specify wav audio playback after conversion(default false)
 
 Modes:
    Mode name      Transfer time(s)     Resolution     Speed(lpm)
@@ -433,6 +571,7 @@ Modes:
     let mut flag_samplerate = false;
     let mut flag_output = false;
     let mut flag_calibration = false;
+    let mut flag_playback = false;
 
     for arg in args {
         let arg: &str = arg;
@@ -460,9 +599,24 @@ Modes:
             *outfile_path = arg.to_string();
             continue;
         }
-        if flag_calibration  {
+        if flag_calibration {
             flag_calibration = false;
             *calibration = match arg.to_lowercase().as_str() {
+                "true" | "yes" | "t" | "yerp" | "yuhuh" | "please" | "pwease" | "ya" | "yer" | "ye" | "y" | "da" => {
+                    true
+                }
+                "false" | "no" | "n" | "f" | "nerp" | "nuhuh" | "nu" | "ner" => {
+                    false
+                }
+                _ => {
+                    panic!("Invalid calibration boolean");
+                }
+            };
+            continue;
+        }
+        if flag_playback {
+            flag_playback = false;
+            *playback = match arg.to_lowercase().as_str() {
                 "true" | "yes" | "t" | "yerp" | "yuhuh" | "please" | "pwease" | "ya" | "yer" | "ye" | "y" | "da" => {
                     true
                 }
@@ -499,6 +653,9 @@ Modes:
             }
             "-c" => {
                 flag_calibration = true;
+            }
+            "-p" => {
+                flag_playback = true;
             }
             _ => {
                 *infile_path = arg.to_string();
