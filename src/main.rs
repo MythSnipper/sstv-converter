@@ -7,6 +7,8 @@ use image::imageops::FilterType;
 
 #[derive(PartialEq, Eq, Debug)]
 enum SSTVMode {
+    R12,
+    R24,
     R36,
     R72,
     M1,
@@ -23,6 +25,8 @@ enum SSTVMode {
 impl SSTVMode {
     fn resolution(&self) -> (u32, u32) {
         match self {
+            SSTVMode::R12 => (160, 120),
+            SSTVMode::R24 => (160, 120),
             SSTVMode::R36 => (320, 240),
             SSTVMode::R72 => (320, 240),
             SSTVMode::M1 => (320, 256),
@@ -38,6 +42,8 @@ impl SSTVMode {
     }
     fn vis_code(&self) -> u8 {
         match self {
+            SSTVMode::R12 => 0b0000000,
+            SSTVMode::R24 => 0b0000100,
             SSTVMode::R36 => 0b0001000,
             SSTVMode::R72 => 0b0001100,
             SSTVMode::M1 => 0b0101100,
@@ -53,8 +59,7 @@ impl SSTVMode {
     }
     fn color_scanline_ms(&self) -> f32 {
         match self {
-            SSTVMode::R36 => 0.0,
-            SSTVMode::R72 => 0.0,
+            SSTVMode::R12 | SSTVMode::R24 | SSTVMode::R36 | SSTVMode::R72 => 0.0,
             SSTVMode::M1 => 146.432,
             SSTVMode::M2 => 73.216,
             SSTVMode::M3 => 146.432,
@@ -174,20 +179,46 @@ impl SSTVMode {
 
                 }
             }
-            SSTVMode::R36 => {
+            SSTVMode::R12 | SSTVMode::R24 | SSTVMode::R36 | SSTVMode::R72 => {
                 let width = self.resolution().0 as usize;
                 let height = self.resolution().1 as usize;
                 
+                let half_chroma: bool = (*self == SSTVMode::R12) || (*self == SSTVMode::R36);
+
                 const LINE_SYNC_HZ: f32 = 1200.0;
                 const COLOR_SYNC1_HZ: f32 = 1500.0;
                 const COLOR_SYNC2_HZ: f32 = 2300.0;
                 const SEP_HZ: f32 = 1500.0;
 
-                let line_sync_ms: f32 = 9.0;
-                let color_sync_ms: f32 = 4.5;
+                let line_sync_ms: f32 = match self {
+                    SSTVMode::R12 => {7.0},
+                    SSTVMode::R24 => {8.5},
+                    SSTVMode::R36 => {9.0},
+                    SSTVMode::R72 => {8.5},
+                    _ => {0.0}
+                };
+                let color_sync_ms: f32 = match self {
+                    SSTVMode::R12 => {3.0},
+                    SSTVMode::R24 => {4.75},
+                    SSTVMode::R36 => {4.5},
+                    SSTVMode::R72 => {4.75},
+                    _ => {0.0}
+                };
 
-                let y_scan_ms: f32 = 88.0;
-                let color_scan_ms: f32 = 44.0;
+                let y_scan_ms: f32 = match self {
+                    SSTVMode::R12 => {60.0},
+                    SSTVMode::R24 => {88.0},
+                    SSTVMode::R36 => {88.0},
+                    SSTVMode::R72 => {138.0},
+                    _ => {0.0}
+                };
+                let color_scan_ms: f32 = match self {
+                    SSTVMode::R12 => {30.0},
+                    SSTVMode::R24 => {44.0},
+                    SSTVMode::R36 => {44.0},
+                    SSTVMode::R72 => {69.0},
+                    _ => {0.0}
+                };
                 const SEP_MS: f32 = 3.0;
                 const SEP_SHORT_MS: f32 = 1.5;
 
@@ -212,90 +243,42 @@ impl SSTVMode {
                     }
 
                     //chrominance sync
-                    emit_tone(writer, osc, if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}, color_sync_ms);
+                    emit_tone(writer, osc, if half_chroma{if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}}else{COLOR_SYNC1_HZ}, color_sync_ms);
 
                     //short separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_SHORT_MS);
+                    emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1900.0}, SEP_SHORT_MS);
                     
                     //Chrominance
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
                         let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
-                        let chrominance = if y%2==0{ycrcb.1}else{ycrcb.2};
+                        let chrominance = if half_chroma{if y%2==0{ycrcb.1}else{ycrcb.2}}else{ycrcb.1};
                         let freq = 1900.0 + 400.0 * chrominance;
                         emit_tone(writer, osc, freq, color_pixel_ms);
                     }
 
+                    if !half_chroma {
+                        //chrominance sync b
+                        emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms);
+
+                        emit_tone(writer, osc, 1900.0, SEP_SHORT_MS);
+
+                        //Chrominance b
+                        for x in 0..width {
+                            let pixel = image.get_pixel(x as u32, y as u32);
+                            let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
+                            let chrominance = ycrcb.2;
+                            let freq = 1900.0 + 400.0 * chrominance;
+                            emit_tone(writer, osc, freq, color_pixel_ms);
+                        }
+                    }
                     
 
                 }
             }
-            SSTVMode::R72 => {
-                let width = self.resolution().0 as usize;
-                let height = self.resolution().1 as usize;
-                
-                const LINE_SYNC_HZ: f32 = 1200.0;
-                const COLOR_SYNC1_HZ: f32 = 1500.0;
-                const COLOR_SYNC2_HZ: f32 = 2300.0;
-                const SEP_HZ: f32 = 1500.0;
+            
 
-                let line_sync_ms: f32 = 8.5;
-                let color_sync_ms: f32 = 4.75;
 
-                let y_scan_ms: f32 = 138.0;
-                let color_scan_ms: f32 = 69.0;
-                const SEP_MS: f32 = 3.0;
-                const SEP_SHORT_MS: f32 = 1.5;
-
-                let y_pixel_ms = y_scan_ms / width as f32;
-                let color_pixel_ms = color_scan_ms / width as f32;
-
-                for y in 0..height {
-
-                    //line sync
-                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms);
-
-                    //separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
-
-                    //Luminance
-                    for x in 0..width {
-                        let pixel = image.get_pixel(x as u32, y as u32);
-                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
-                        let y = ycrcb.0;
-                        let freq: f32 = 1500.0 + (2300.0 - 1500.0) * y;
-                        emit_tone(writer, osc, freq, y_pixel_ms);
-                    }
-
-                    //chrominance sync r
-                    emit_tone(writer, osc, COLOR_SYNC1_HZ, color_sync_ms);
-
-                    emit_tone(writer, osc, 1900.0, SEP_SHORT_MS);
-
-                    //Chrominance r
-                    for x in 0..width {
-                        let pixel = image.get_pixel(x as u32, y as u32);
-                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
-                        let chrominance = ycrcb.1;
-                        let freq = 1900.0 + 400.0 * chrominance;
-                        emit_tone(writer, osc, freq, color_pixel_ms);
-                    }
-
-                    //chrominance sync b
-                    emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms);
-
-                    emit_tone(writer, osc, 1900.0, SEP_SHORT_MS);
-
-                    //Chrominance b
-                    for x in 0..width {
-                        let pixel = image.get_pixel(x as u32, y as u32);
-                        let ycrcb = rgb_to_ycrcb(pixel[0], pixel[1], pixel[2]);
-                        let chrominance = ycrcb.2;
-                        let freq = 1900.0 + 400.0 * chrominance;
-                        emit_tone(writer, osc, freq, color_pixel_ms);
-                    }
-                }
-            }
         }
     }
 }
@@ -305,6 +288,8 @@ impl FromStr for SSTVMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "R12" | "Robot12" => Ok(SSTVMode::R12),
+            "R24" | "Robot24" => Ok(SSTVMode::R24),
             "R36" | "Robot36" => Ok(SSTVMode::R36),
             "R72" | "Robot72" => Ok(SSTVMode::R72),
             "M1" | "Martin1" => Ok(SSTVMode::M1),
@@ -420,6 +405,10 @@ Options:
 
 Modes:
    Mode name      Transfer time(s)     Resolution     Speed(lpm)
+  Robot12, R12          12              160x120          600
+  Robot24, R24          24              160x120          300
+  Robot36, R36          36              320x240          400
+  Robot72, R72          72              320x240          200
   Martin1, M1          114              320x256          134
   Martin2, M2           58              160x256          264
   Martin3, M3           57              320x128          134
@@ -588,7 +577,6 @@ fn write_vis<W: std::io::Write + std::io::Seek>(
     //stop bit
     emit_tone(writer, osc, VIS_BIT_N_HZ, VIS_BIT_MS);
 }
-
 
 fn emit_tone<W: std::io::Write + std::io::Seek>(
     writer: &mut hound::WavWriter<W>,
