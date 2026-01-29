@@ -193,7 +193,7 @@ impl SSTVMode {
 
                 let line_sync_ms: f32 = match self {
                     SSTVMode::R12 => {7.0},
-                    SSTVMode::R24 => {8.0},
+                    SSTVMode::R24 => {8.25},
                     SSTVMode::R36 => {9.0},
                     SSTVMode::R72 => {8.5},
                     _ => {0.0}
@@ -215,7 +215,7 @@ impl SSTVMode {
                 };
                 let color_scan_ms: f32 = match self {
                     SSTVMode::R12 => {30.0},
-                    SSTVMode::R24 => {45.0},
+                    SSTVMode::R24 => {46.0},
                     SSTVMode::R36 => {44.0},
                     SSTVMode::R72 => {69.0},
                     _ => {0.0}
@@ -230,11 +230,11 @@ impl SSTVMode {
                 for y in 0..height {
                     let mut totalitarianism: f32 = 0.0;
                     //line sync
-                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms+1.0);
+                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms);
                     totalitarianism += line_sync_ms;
                     //separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_MS-1.5);
-                    totalitarianism += SEP_MS;
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
+                    totalitarianism += SEP_MS-1.5;
                     //Luminance
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
@@ -246,16 +246,16 @@ impl SSTVMode {
                     }
 
                     //chrominance sync
-                    let syn_adjust = -0.25;
-                    emit_tone(writer, osc, if half_chroma{if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}}else{COLOR_SYNC1_HZ}, color_sync_ms-0.75+syn_adjust);
+                    let syn_adjust_1 = -1.75/2.0;
+                    emit_tone(writer, osc, if half_chroma{if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}}else{COLOR_SYNC1_HZ}, color_sync_ms+syn_adjust_1);
 
                     totalitarianism += color_sync_ms;
 
                     //short separator
-                    emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1900.0}, SEP_SHORT_MS-1.0);
+                    //emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1900.0}, SEP_SHORT_MS-1.0);
                     
-                    totalitarianism += SEP_SHORT_MS;
-
+                    //totalitarianism += SEP_SHORT_MS;
+                    
                     //Chrominance
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
@@ -266,13 +266,13 @@ impl SSTVMode {
                         totalitarianism += color_pixel_ms;
                     }
 
-
+                    let syn_adjust_2 = 1.75/2.0;
                     if !half_chroma {
                         //chrominance sync b
-                        emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms-0.75-syn_adjust);
+                        emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms-syn_adjust_2);
                         totalitarianism += color_sync_ms;
-                        emit_tone(writer, osc, 1900.0, SEP_SHORT_MS-1.0);
-                        totalitarianism += SEP_SHORT_MS;
+                        //emit_tone(writer, osc, 1900.0, SEP_SHORT_MS-1.0);
+                        //totalitarianism += SEP_SHORT_MS;
                         //Chrominance b
                         for x in 0..width {
                             let pixel = image.get_pixel(x as u32, y as u32);
