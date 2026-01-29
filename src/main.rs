@@ -191,9 +191,10 @@ impl SSTVMode {
                 const COLOR_SYNC2_HZ: f32 = 2300.0;
                 const SEP_HZ: f32 = 1500.0;
 
+                //SKIBIDI
                 let line_sync_ms: f32 = match self {
                     SSTVMode::R12 => {7.0},
-                    SSTVMode::R24 => {8.25},
+                    SSTVMode::R24 => {8.0},
                     SSTVMode::R36 => {9.0},
                     SSTVMode::R72 => {8.5},
                     _ => {0.0}
@@ -205,7 +206,7 @@ impl SSTVMode {
                     SSTVMode::R72 => {4.75},
                     _ => {0.0}
                 };
-
+                
                 let y_scan_ms: f32 = match self {
                     SSTVMode::R12 => {60.0},
                     SSTVMode::R24 => {91.0},
@@ -229,12 +230,14 @@ impl SSTVMode {
                 let mut no_vel = true;
                 for y in 0..height {
                     let mut totalitarianism: f32 = 0.0;
+
+                    let oah = 1.0;
                     //line sync
-                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms);
-                    totalitarianism += line_sync_ms;
+                    emit_tone(writer, osc, LINE_SYNC_HZ, line_sync_ms+0.25+oah);
+                    totalitarianism += line_sync_ms+0.25+oah;
                     //separator
-                    emit_tone(writer, osc, SEP_HZ, SEP_MS);
-                    totalitarianism += SEP_MS-1.5;
+                    emit_tone(writer, osc, SEP_HZ, SEP_MS-0.5-oah);
+                    totalitarianism += SEP_MS-0.5-oah;
                     //Luminance
                     for x in 0..width {
                         let pixel = image.get_pixel(x as u32, y as u32);
@@ -246,13 +249,13 @@ impl SSTVMode {
                     }
 
                     //chrominance sync
-                    let syn_adjust_1 = -1.75/2.0;
+                    let syn_adjust_1 = -1.25-(0.25/2.0);
                     emit_tone(writer, osc, if half_chroma{if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}}else{COLOR_SYNC1_HZ}, color_sync_ms+syn_adjust_1);
 
-                    totalitarianism += color_sync_ms;
+                    totalitarianism += color_sync_ms + syn_adjust_1;
 
                     //short separator
-                    //emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1900.0}, SEP_SHORT_MS-1.0);
+                    //emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1500.0}, SEP_SHORT_MS-1.0);
                     
                     //totalitarianism += SEP_SHORT_MS;
                     
@@ -266,11 +269,11 @@ impl SSTVMode {
                         totalitarianism += color_pixel_ms;
                     }
 
-                    let syn_adjust_2 = 1.75/2.0;
+                    let syn_adjust_2 = -1.25-(0.25/2.0);
                     if !half_chroma {
                         //chrominance sync b
-                        emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms-syn_adjust_2);
-                        totalitarianism += color_sync_ms;
+                        emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms+syn_adjust_2);
+                        totalitarianism += color_sync_ms + syn_adjust_2;
                         //emit_tone(writer, osc, 1900.0, SEP_SHORT_MS-1.0);
                         //totalitarianism += SEP_SHORT_MS;
                         //Chrominance b
@@ -312,7 +315,7 @@ impl SSTVMode {
                 let color_sync_ms: f32 = match self {
                     SSTVMode::R12 => {3.0},
                     SSTVMode::R24 => {4.5},
-                    SSTVMode::R36 => {4.5},
+                    SSTVMode::R36 => {5.5},
                     SSTVMode::R72 => {4.75},
                     _ => {0.0}
                 };
@@ -320,7 +323,7 @@ impl SSTVMode {
                 let y_scan_ms: f32 = match self {
                     SSTVMode::R12 => {60.0},
                     SSTVMode::R24 => {91.0},
-                    SSTVMode::R36 => {88.0},
+                    SSTVMode::R36 => {87.0},
                     SSTVMode::R72 => {138.0},
                     _ => {0.0}
                 };
@@ -400,13 +403,10 @@ impl SSTVMode {
                     }
                 }
             }
-            
-
 
         }
     }
 }
-
 impl FromStr for SSTVMode {
     type Err = String;
 
@@ -431,8 +431,7 @@ impl FromStr for SSTVMode {
 }
 
 
-
-pub struct Oscillator {
+struct Oscillator {
     pub sample_rate: u32,
     phase: f32,
     frac_samples: f32,
