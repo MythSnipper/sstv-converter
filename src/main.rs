@@ -248,13 +248,13 @@ impl SSTVMode {
                         totalitarianism += y_pixel_ms;
                     }
 
-                    let inc_separator = 1.0;
+                    let inc_separator = -1.0;
 
                     //chrominance sync
                     let syn_adjust_1 = -1.25-(0.25/2.0);
                     emit_tone(writer, osc, if half_chroma{if y%2==0{COLOR_SYNC1_HZ}else{COLOR_SYNC2_HZ}}else{COLOR_SYNC1_HZ}, color_sync_ms+syn_adjust_1+inc_separator-3.0);
 
-                    totalitarianism += color_sync_ms + syn_adjust_1 + inc_separator;
+                    totalitarianism += color_sync_ms + syn_adjust_1 + inc_separator-3.0;
 
                     //short separator
                     //emit_tone(writer, osc, if half_chroma{SEP_HZ}else{1500.0}, SEP_SHORT_MS-1.0);
@@ -275,7 +275,7 @@ impl SSTVMode {
                     if !half_chroma {
                         //chrominance sync b
                         emit_tone(writer, osc, COLOR_SYNC2_HZ, color_sync_ms+syn_adjust_2-inc_separator-3.0);
-                        totalitarianism += color_sync_ms + syn_adjust_2-inc_separator;
+                        totalitarianism += color_sync_ms + syn_adjust_2-inc_separator-3.0;
                         //emit_tone(writer, osc, 1900.0, SEP_SHORT_MS-1.0);
                         //totalitarianism += SEP_SHORT_MS;
                         //Chrominance b
@@ -742,6 +742,12 @@ fn emit_tone<W: std::io::Write + std::io::Seek>(
     freq_hz: f32,
     duration_ms: f32,
 ) {
+    if duration_ms == 0.0 {
+        println!("Warning: 0 ms emit tone");
+    }
+    if duration_ms < 0.0 {
+        panic!("Invalid duration: {}", duration_ms);
+    }
     if let Err(e) = _emit_tone(writer, osc, freq_hz, duration_ms) {
         eprintln!("Failed to write tone: {}", e);
     }
